@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+
+<!-- 
+
+  web app for touch screen (IOS) control of a robot
+
+  yuri - Jun 2014
+
+  adapted from http://matt.might.net/articles/ios-multitouch-robot-control/ 
+
+  requires an http request handler such as python's BaseHTTPServer
+
+-->
+<html>
+
+ <head>
+
+  <title>Robot Tank</title>
+
+  <meta name="viewport" content="user-scalable = no, initial-scale = 1.0,  width = device-width" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+  <script>
+function BlockMove(event) {
+ // Tell Safari not to move the window.
+ event.preventDefault();
+}
+  </script>
+
+  <style>
+div#pad {
+ width: 940px;
+ height: 1390px;
+ background: mediumseagreen;
+ font-size: 300%;
+ margin-left: auto;
+ margin-right: auto;
+}
+  </style>
+
+ </head>
+
+ <body ontouchmove="BlockMove(event);">
+
+  <div id="pad">
+  </div>
+ 
+  <script>
+var UpdatePeriod = 300; // milliseconds
+var LastTouch = 0;
+
+//  Is the user gesturing or touching?
+var InGesture = false;
+
+// add mouse support
+var IsMouseUp = true;
+
+// Last and current command:
+var LastCommand = {"action": "stop"};
+var Command     = LastCommand;
+
+var Pad = document.getElementById("pad");
+
+function HttpSend(url) {
+  var req = new XMLHttpRequest();
+  req.open("GET", url, true);
+  req.send(null);
+}
+
+// Called periodically to issue commands:
+function UpdateRobot() {
+  if ((LastCommand.action == Command.action) &&
+      (LastCommand.speedL == Command.speedL) &&
+      (LastCommand.speedR == Command.speedR)) {
+    return;
+  }
+
+  //Pad.innerHTML = Command.action + ": " + Command.speed;
+
+  Pad.innerHTML = "Action: " + Command.action + "<br>" +
+                  "SpeedL: " + Command.speedL + "<br>" +
+                  "SpeedR: " + Command.speedR;
+
+  switch (Command.action) {
+  case "move":
+  case "spin":
+    HttpSend("/" + Command.action + "?speedL=" +
+             encodeURIComponent(Command.speedL) +
+             "&speedR=" +
+             encodeURIComponent(Command.speedR));
+    break;
+
+  case "stop":
+    HttpSend("/stop");
+    break;
+  }
+
+  LastCommand = Command;
+}
+
+// Check for new actions at regular intervals:
+setInterval(UpdateRobot, UpdatePeriod);
+
+function touchmove(event) {
+  if (InGesture) {
+    return;
+  }
+  var finger = event.touches[0];
+
+  var maxX = window.innerWidth;
+  var maxY = window.innerHeight;
+
+  var coordX = finger.clientX - maxX / 2;
+  var coordY = maxY / 2 - finger.clientY;
+
+  var speedL = coordY / (maxY / 2);
+  var speedR = speedL;
+
+  if (coordX < 0) {
+    speedL = speedL * (1 + coordX / (maxX / 2));
+  }
+  if (coordX > 0) {
+    speedR = speedR * (1 - coordX / (maxX / 2));
+  }
+
+  speedL = Math.round(speedL * 100);
+  speedR = Math.round(speedR * 100);
+
+  Command = {"action": "move", "speedL": speedL, "speedR": speedR};
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function touchstart(event) {
+  var newTouch = (new Date()).getTime();
+  LastTouch = newTouch;
+  // only trigger touchmove on single touch events
+  if (event.touches.length < 2) {
+    touchmove(event);
+  }
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+// this code loads an image on orientation change
+// rather stream onboard video than force the user to change orientation
+// document.body.onorientationchange = function (event) {
+//   Pad.style.backgroundImage = "url(./cam.gif?r=" + Math.random() + ")";
+// };
+
+function touchend(event) {
+  Command = {"action": "stop", "speedL": 0, "speedR": 0};
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function gesturechange(event) {
+  var rotation = event.rotation;
+  if (rotation < -180.0) {
+    rotation += 360.0;
+  }
+  if (rotation >  180.0) {
+    rotation -= 360.0;
+  }
+  var speedL = Math.round(rotation / 180.0 * 100.0);
+  var speedR = speedL * -1.0;
+  Command = {"action": "spin", "speedL": speedL, "speedR": speedR};
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function gesturestart(event) {
+  InGesture = true;
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function gestureend(event) {
+  InGesture = false;
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function mousedown(event) {
+  IsMouseUp = false;
+  event.touches = [{clientX: event.clientX, clientY: event.clientY}];
+  touchstart(event);
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+// add mouse support - fake "touch" events based on mouse clicks
+// the stopPropagation() method keeps events from triggering recursively
+//   because many touchscreen devices pass touch events as mouse events
+//   unfortunately, it keeps the event from triggering BlockMove()
+// so...
+// the preventDefault() method keeps the mouse/touch events from
+//   moving, scaling, rotating, highlighting, etc
+function mousemove(event) {
+  if (IsMouseUp) {
+    return;
+  }
+  event.touches = [{clientX: event.clientX, clientY: event.clientY}];
+  touchmove(event);
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function mouseup(event) {
+  IsMouseUp = true;
+  touchend(event);
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+// Watch for touches and gestures:
+Pad.ontouchstart = touchstart;
+Pad.ontouchmove = touchmove;
+Pad.ontouchend = touchend;
+
+// not entirely sure that these do anything at all...
+Pad.ongesturestart = gesturestart;
+Pad.ongesturechange = gesturechange;
+Pad.ongestureend = gestureend;
+
+// for some reason, we can't use Pad.ongesturestart with IOS 7
+// hooking with addEventListener does work, though
+// see http://mark.themoseleys.com/2013/10/ios-7-and-javascript-gestures/
+Pad.addEventListener("gesturestart", gesturestart, false);
+Pad.addEventListener("gestureend", gestureend, false);
+Pad.addEventListener("gesturechange", gesturechange, false);
+
+// make compatible with mouse actions
+Pad.addEventListener("mousedown", mousedown);
+Pad.addEventListener("mousemove", mousemove);
+Pad.addEventListener("mouseup", mouseup);
+  </script>
+
+ </body>
+
+</html>
